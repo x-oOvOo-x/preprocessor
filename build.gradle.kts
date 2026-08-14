@@ -29,39 +29,89 @@ gradlePlugin {
     plugins {
         register("preprocess") {
             id = "com.replaymod.preprocess"
-            implementationClass = "com.replaymod.gradle.preprocess.PreprocessPlugin"
+            implementationClass =
+                "com.replaymod.gradle.preprocess.PreprocessPlugin"
         }
+
         register("preprocess-root") {
             id = "com.replaymod.preprocess-root"
-            implementationClass = "com.replaymod.gradle.preprocess.RootPreprocessPlugin"
+            implementationClass =
+                "com.replaymod.gradle.preprocess.RootPreprocessPlugin"
         }
     }
 }
 
-java.toolchain.languageVersion.set(JavaLanguageVersion.of(17))
+java.toolchain.languageVersion.set(
+    JavaLanguageVersion.of(17)
+)
 
 tasks.withType<Test> {
     useJUnitPlatform()
 }
-tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
+
+tasks.withType<
+        org.jetbrains.kotlin.gradle.tasks.KotlinCompile
+        >().configureEach {
     compilerOptions {
-        jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.fromTarget("1.8")
+        jvmTarget =
+            org.jetbrains.kotlin.gradle.dsl
+                .JvmTarget
+                .fromTarget("1.8")
     }
 }
 
 repositories {
     mavenLocal()
     mavenCentral()
-    maven(url = "https://jitpack.io")
-    maven(url = "https://maven.fabricmc.net")
+
+    maven(
+        url = "https://jitpack.io"
+    )
+
+    maven(
+        url = "https://maven.fabricmc.net"
+    )
 }
 
 dependencies {
-    implementation(gradleApi())
-    implementation(localGroovy())
-    implementation("com.github.Fallen-Breath:remap:f1c1480696")
-    implementation("net.fabricmc:mapping-io:0.8.0")
-    implementation("org.ow2.asm:asm:9.9.1")
-    testImplementation("io.kotest:kotest-runner-junit5-jvm:$kotestVersion")
-    testImplementation("io.kotest:kotest-assertions-core-jvm:$kotestVersion")
+    implementation(
+        gradleApi()
+    )
+
+    implementation(
+        localGroovy()
+    )
+
+    implementation(
+        "com.github.Fallen-Breath:remap:f1c1480696"
+    )
+
+    implementation(
+        "net.fabricmc:mapping-io:0.8.0"
+    )
+
+    implementation(
+        "org.ow2.asm:asm:9.9.1"
+    )
+
+    /*
+     * Only compile against Loom's public API.
+     *
+     * Loom itself is supplied by the consuming Minecraft project and must
+     * therefore never be bundled into the preprocessor artifact.
+     *
+     * ReplayMod's current implementation also uses Loom 1.7.4 as its
+     * compileOnly API baseline.
+     */
+    compileOnly(
+        "net.fabricmc:fabric-loom:1.7.4"
+    )
+
+    testImplementation(
+        "io.kotest:kotest-runner-junit5-jvm:$kotestVersion"
+    )
+
+    testImplementation(
+        "io.kotest:kotest-assertions-core-jvm:$kotestVersion"
+    )
 }
