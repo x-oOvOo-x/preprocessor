@@ -7,22 +7,26 @@ import org.cadixdev.lorenz.io.MappingFormats
 import org.cadixdev.lorenz.model.*
 import java.io.File
 import java.nio.file.FileSystems
+import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.io.path.bufferedReader
 import kotlin.io.path.extension
 
 /**
- * Reads a mapping artifact into a MappingVisitor.
+ * Reads either a plain mapping file or a Loom mapping jar.
  *
- * Loom may expose layered mappings either as a normal mapping file or as a jar
- * containing mappings/mappings.tiny. Support both forms here so callers do not
- * need to know how Loom packaged the mapping artifact.
+ * Loom layered mappings may be packaged as:
+ *
+ *     mappings/mappings.tiny
+ *
+ * inside a jar. Paths inside ZipFS must not be converted with Path.toFile().
  */
 internal fun readMappings(path: Path, visitor: MappingVisitor) {
     if (path.extension.equals("jar", ignoreCase = true)) {
         FileSystems.newFileSystem(path).use { fileSystem ->
             val mappingsPath = fileSystem.getPath("mappings", "mappings.tiny")
-            require(mappingsPath.toFile().exists()) {
+
+            require(Files.exists(mappingsPath)) {
                 "Mapping jar `$path` does not contain mappings/mappings.tiny"
             }
 
@@ -44,9 +48,8 @@ fun File.readMappings(): MappingSet {
     return format.read(toPath())
 }
 
-// SRG doesn't track class names, so we need to inject our manual mappings which do contain them.
-// However, our manual mappings also contain certain manual mappings in MCP names which need to be
-// applied before transitioning to SRG names. As such, split class mappings from the rest.
+// SRG doesn't track class names, so manual class mappings need to be split
+// from mappings which are applied after transitioning to SRG names.
 fun MappingSet.splitOffClassMappings(): MappingSet {
     val clsMap = MappingSet.create()
 
@@ -76,7 +79,7 @@ fun InnerClassMapping.splitOffInnerClassMappings(to: InnerClassMapping) {
     }
 }
 
-// Like a.merge(b) except mappings in b which do not exist in a are preserved.
+// Like a.merge(b), except mappings which exist only in b are preserved.
 fun MappingSet.mergeBoth(
     b: MappingSet,
     into: MappingSet = MappingSet.create()
@@ -157,8 +160,8 @@ fun <T : ClassMapping<T, *>> ClassMapping<T, *>.mergeBoth(
     }
 }
 
-// Like MappingSet.join, but mappings not present in b are excluded.
-// Field/method joining ignores types so mappings can survive type changes.
+// Like MappingSet.join, but entries which do not exist in b are excluded.
+// Field/method joining ignores changed descriptors where possible.
 fun MappingSet.join(
     b: MappingSet,
     into: MappingSet = MappingSet.create()
@@ -226,7 +229,6 @@ fun InnerClassMapping.join(b: InnerClassMapping, into: ClassMapping<*, *>) {
     }
 }
 
-// Like FieldMapping.merge but considerably faster in newer Lorenz versions.
 fun FieldMapping.join(
     with: FieldMapping,
     parent: ClassMapping<*, *>
@@ -234,7 +236,6 @@ fun FieldMapping.join(
     parent.createFieldMapping(signature)
         .setDeobfuscatedName(with.deobfuscatedName)
 
-// Like MethodMapping.merge but considerably faster in newer Lorenz versions.
 fun MethodMapping.join(
     with: MethodMapping,
     parent: ClassMapping<*, *>
