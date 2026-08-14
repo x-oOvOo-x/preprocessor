@@ -1,6 +1,5 @@
 package com.replaymod.gradle.preprocess
 
-import net.fabricmc.mappingio.MappingReader
 import net.fabricmc.mappingio.MappingVisitor
 import net.fabricmc.mappingio.adapter.MappingDstNsReorder
 import net.fabricmc.mappingio.adapter.MappingNsCompleter
@@ -13,148 +12,73 @@ import org.gradle.api.file.RegularFileProperty
 import org.gradle.api.tasks.InputFile
 import org.gradle.api.tasks.OutputFile
 import org.gradle.api.tasks.TaskAction
-import java.nio.file.Path
 
 /**
- * Merges normal named mappings and Mojang mappings into one Tiny v2 mapping
+ * Combines normal named mappings and Mojang mappings into one Tiny v2 mapping
  * tree containing:
  *
- *     official
- *     named
- *     mojang
+ * official -> named
+ * official -> mojang
  *
- * Both input mapping files must share the same official namespace.
- *
- * The `named` namespace comes from [namedMappings].
- * The `mojang` namespace comes from the named namespace of [mojangMappings].
+ * Input files may either be plain mapping files or Loom mapping jars.
  */
-internal abstract class MergeNamedAndMojangMappingsTask :
-    DefaultTask() {
+internal abstract class MergeNamedAndMojangMappingsTask : DefaultTask() {
 
     @get:InputFile
-    abstract val namedMappings:
-            RegularFileProperty
+    abstract val namedMappings: RegularFileProperty
 
     @get:InputFile
-    abstract val mojangMappings:
-            RegularFileProperty
+    abstract val mojangMappings: RegularFileProperty
 
     @get:OutputFile
-    abstract val output:
-            RegularFileProperty
+    abstract val output: RegularFileProperty
 
     @TaskAction
     fun merge() {
-        val mappingTree =
-            MemoryMappingTree()
+        val mappingTree = MemoryMappingTree()
 
         mappingTree.visitNamespaces(
             "official",
-            listOf(
-                "named",
-                "mojang",
-            ),
+            listOf("named", "mojang")
         )
-
         mappingTree.visitEnd()
 
         readMappings(
-            namedMappings
-                .get()
-                .asFile
-                .toPath(),
+            namedMappings.get().asFile.toPath(),
             mappingTree
-                .withDstNs(
-                    "named"
-                )
-                .withSrcNs(
-                    "official"
-                ),
+                .withDstNs("named")
+                .withSrcNs("official")
         )
 
         readMappings(
-            mojangMappings
-                .get()
-                .asFile
-                .toPath(),
+            mojangMappings.get().asFile.toPath(),
             mappingTree
-                .withNsRename(
-                    "named" to "mojang"
+                .withNsRename("named" to "mojang")
+                .withDstNs("named")
+                .withSrcNs("official")
+        )
+
+        val outputFile = output.get().asFile
+        outputFile.parentFile.mkdirs()
+
+        outputFile.bufferedWriter().use { writer ->
+            mappingTree.accept(
+                MappingNsCompleter(
+                    Tiny2FileWriter(writer, false),
+                    null
                 )
-                .withDstNs(
-                    "named"
-                )
-                .withSrcNs(
-                    "official"
-                ),
-        )
-
-        val outputFile =
-            output
-                .get()
-                .asFile
-
-        outputFile
-            .parentFile
-            .mkdirs()
-
-        outputFile
-            .bufferedWriter()
-            .use {
-                    writer ->
-
-                mappingTree.accept(
-                    MappingNsCompleter(
-                        Tiny2FileWriter(
-                            writer,
-                            false,
-                        ),
-                        null,
-                    )
-                )
-            }
+            )
+        }
     }
 
-    /**
-     * Reads any mapping-io supported format into [visitor].
-     */
-    private fun readMappings(
-        path: Path,
-        visitor: MappingVisitor,
-    ) {
-        MappingReader.read(
-            path,
-            visitor,
-        )
-    }
+    private fun MappingVisitor.withSrcNs(srcNs: String): MappingVisitor =
+        MappingSourceNsSwitch(this, srcNs)
 
-    private fun MappingVisitor.withSrcNs(
-        srcNs: String,
-    ): MappingVisitor {
-        return MappingSourceNsSwitch(
-            this,
-            srcNs,
-        )
-    }
-
-    private fun MappingVisitor.withDstNs(
-        vararg newDstNs: String,
-    ): MappingVisitor {
-        return MappingDstNsReorder(
-            this,
-            newDstNs.asList(),
-        )
-    }
+    private fun MappingVisitor.withDstNs(vararg newDstNs: String): MappingVisitor =
+        MappingDstNsReorder(this, newDstNs.asList())
 
     private fun MappingVisitor.withNsRename(
-        vararg mapping:
-        Pair<String, String>,
-    ): MappingVisitor {
-        return MappingNsRenamer(
-            this,
-            mapOf(
-                *mapping
-            ),
-        )
-    }
+        vararg mapping: Pair<String, String>
+    ): MappingVisitor =
+        MappingNsRenamer(this, mapOf(*mapping))
 }
