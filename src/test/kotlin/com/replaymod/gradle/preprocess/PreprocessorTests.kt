@@ -5,6 +5,7 @@ import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.booleans.shouldBeFalse
 import io.kotest.matchers.booleans.shouldBeTrue
 import io.kotest.matchers.shouldBe
+import io.kotest.matchers.string.shouldContain
 
 class PreprocessorTests : FunSpec({
     val vars = mapOf(
@@ -116,9 +117,116 @@ class PreprocessorTests : FunSpec({
                     "test.java"
             ).joinToString("\n")
 
-            test("throws on unexpected endif") {
-                shouldThrow<CommentPreprocessor.ParserException> { "//#endif".convert() }
-            }
+            test("rejects eval marker indented less than surrounding condition") {
+                    val source =
+                        "    //#if t\n" +
+                                "//$$ code\n" +
+                                "    //#endif"
+
+                    val error = shouldThrow<CommentPreprocessor.ParserException> {
+                        source.convert()
+                    }
+
+                    error.message!!.shouldContain("Unsafe preprocessor indentation")
+                    error.message!!.shouldContain("indentation (0)")
+                    error.message!!.shouldContain("conditional indentation (4)")
+                    error.message!!.shouldContain("reversible")
+                }
+
+                test("rejects eval marker indented less than innermost nested condition") {
+                    val source =
+                        "    //#if t\n" +
+                                "        //#if t\n" +
+                                "    //$$ code\n" +
+                                "        //#endif\n" +
+                                "    //#endif"
+
+                    val error = shouldThrow<CommentPreprocessor.ParserException> {
+                        source.convert()
+                    }
+
+                    error.message!!.shouldContain("Unsafe preprocessor indentation")
+                    error.message!!.shouldContain("indentation (4)")
+                    error.message!!.shouldContain("conditional indentation (8)")
+                }
+
+                test("allows eval marker aligned with surrounding condition") {
+                    val source =
+                        "    //#if t\n" +
+                                "    //$$ code\n" +
+                                "    //#endif"
+
+                    source.convert().shouldBe(
+                        "    //#if t\n" +
+                                "    code\n" +
+                                "    //#endif"
+                    )
+                }
+
+                test("allows eval marker deeper than surrounding condition") {
+                    val source =
+                        "    //#if t\n" +
+                                "        //$$ code\n" +
+                                "    //#endif"
+
+                    source.convert().shouldBe(
+                        "    //#if t\n" +
+                                "        code\n" +
+                                "    //#endif"
+                    )
+                }
+
+                test("does not reject dedented active source without eval marker") {
+                    val source =
+                        "    //#if f\n" +
+                                "code\n" +
+                                "    //#endif"
+
+                    source.convert().shouldBe(source)
+                }
+
+                test("aligned conditional source round trips between versions") {
+                    fun convertFor(mcVersion: Int, source: String): String {
+                        val preprocessor = CommentPreprocessor(
+                            mapOf("MC" to mcVersion)
+                        )
+                        val sourceLines = source.lines()
+
+                        return preprocessor.convertSource(
+                            PreprocessTask.DEFAULT_KEYWORDS,
+                            sourceLines,
+                            sourceLines.map { it to emptyList() },
+                            "roundtrip.java"
+                        ).joinToString("\n")
+                    }
+
+                    val lowVersionSource =
+                        "    //#if MC >= 11601\n" +
+                                "    //$$ code\n" +
+                                "    //#endif"
+
+                    val highVersionSource = convertFor(
+                        260102,
+                        lowVersionSource
+                    )
+
+                    highVersionSource.shouldBe(
+                        "    //#if MC >= 11601\n" +
+                                "    code\n" +
+                                "    //#endif"
+                    )
+
+                    convertFor(
+                        11502,
+                        highVersionSource
+                    ).shouldBe(lowVersionSource)
+                }
+
+                test("throws on unexpected endif") {
+                    shouldThrow<CommentPreprocessor.ParserException> {
+                        "//#endif".convert()
+                    }
+                }
             test("throws on unexpected else") {
                 shouldThrow<CommentPreprocessor.ParserException> { "//#else".convert() }
             }

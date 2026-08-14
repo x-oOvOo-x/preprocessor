@@ -683,11 +683,57 @@ class CommentPreprocessor(private val vars: Map<String, Int>) {
             }
         }
 
+        /*
+         * A //$$ marker is reversible only when it is indented at least as
+         * deeply as the innermost active preprocessor directive.
+         *
+         * Example of an unsafe source:
+         *
+         *     //#if MC >= 11601
+         * //$$ code
+         *     //#endif
+         *
+         * When the condition becomes true, //$$ is removed and "code" moves
+         * to column zero. When the condition later becomes false again,
+         * convertSource() deliberately does not touch that dedented line,
+         * because it may belong to an outer source scope. The original //$$
+         * therefore cannot be reconstructed and setCoreVersion ceases to be
+         * round-trip safe.
+         *
+         * Reject that source before performing the conversion.
+         */
+        fun validateEvalIndentation(originalLine: String) {
+            if (indentStack.isEmpty()) {
+                return
+            }
+
+            val trimmedOriginal = originalLine.trim()
+            if (!trimmedOriginal.startsWith(kws.eval)) {
+                return
+            }
+
+            val conditionalIndent = indentStack.peek()!!
+            val evalIndent = originalLine.indentation
+
+            if (evalIndent.length < conditionalIndent.length) {
+                throw ParserException(
+                    "Unsafe preprocessor indentation in line $n of $fileName: " +
+                            "`${kws.eval}` indentation (${evalIndent.length}) is less than " +
+                            "the innermost conditional indentation (${conditionalIndent.length}). " +
+                            "Align `${kws.eval}` with the innermost conditional directive " +
+                            "to keep preprocessing reversible."
+                )
+            }
+        }
+
         return lines.zip(remapped).map { (originalLine, lineMapped) ->
             val (line, errors) = lineMapped
             var ignoreErrors = false
             n++
             val trimmed = line.trim()
+
+            validateEvalIndentation(originalLine)
+
             val mapped = if (trimmed.startsWith(kws.`if`)) {
                 val result = evalCondition(trimmed.substring(kws.`if`.length))
                 stack.push(IfStackEntry(result, n, elseFound = false, trueFound = result))
