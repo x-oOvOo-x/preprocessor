@@ -61,6 +61,7 @@ dependencies {
     implementation(localGroovy())
     implementation("com.github.Fallen-Breath:remap:f1c1480696")
     implementation("net.fabricmc:mapping-io:0.8.0")
+    implementation("org.ow2.asm:asm:9.9.1")
     testImplementation("io.kotest:kotest-runner-junit5-jvm:$kotestVersion")
     testImplementation("io.kotest:kotest-assertions-core-jvm:$kotestVersion")
 }
