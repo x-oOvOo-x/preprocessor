@@ -8,17 +8,11 @@ import javax.inject.Inject
 /**
  * Root configuration and version graph for the preprocessor.
  *
- * The root extension owns the canonical list of configured version nodes.
+ * The root extension owns the canonical list of configured Minecraft
+ * version nodes.
  *
- * A version node contains:
- *
- * - Gradle project name;
- * - Minecraft version number;
- * - mapping namespace identifier;
- * - links to adjacent Minecraft versions.
- *
- * The mutable graph is kept private. Consumers should use the query methods
- * exposed by this extension instead of depending on the backing collection.
+ * A node with non-null mappings represents an obfuscated/mapped version.
+ * A node with null mappings represents an unobfuscated version.
  */
 open class RootPreprocessExtension @Inject constructor(
     objects: ObjectFactory,
@@ -29,30 +23,28 @@ open class RootPreprocessExtension @Inject constructor(
      *
      * Defaults to false for backwards compatibility.
      */
-    val strictExtraMappings = objects.property<Boolean>()
+    val strictExtraMappings =
+        objects.property<Boolean>()
 
     /**
      * Lazily generated rooted project graph.
-     *
-     * Once generated, the graph must no longer be structurally modified.
      */
-    private var rootNode: ProjectGraphNode? = null
+    private var rootNode:
+            ProjectGraphNode? = null
 
     /**
-     * Version nodes in declaration order.
+     * Canonical version-node collection.
      *
-     * linkedSetOf is intentional:
+     * LinkedHashSet semantics are intentional:
      *
-     * - uniqueness is retained;
-     * - iteration order remains deterministic;
-     * - existing Groovy builds relying on declaration order remain stable.
+     * - nodes remain unique;
+     * - declaration order remains deterministic.
      */
-    private val nodes = linkedSetOf<Node>()
+    private val nodes =
+        linkedSetOf<Node>()
 
     /**
-     * Returns the rooted project graph whose root is [mainProject].
-     *
-     * The graph is generated lazily and cached after the first request.
+     * Returns the rooted graph for [mainProject].
      */
     fun getRootNode(
         mainProject: String,
@@ -65,15 +57,14 @@ open class RootPreprocessExtension @Inject constructor(
     }
 
     /**
-     * Returns a read-only snapshot of all configured version nodes.
+     * Returns a read-only snapshot of all configured nodes.
      *
-     * This method is part of the public Gradle-facing API.
-     *
-     * In particular, multi-version projects may use it during root project
-     * configuration to expose Minecraft version metadata to child projects
-     * before the child preprocessor plugin itself is applied.
+     * Kept as a stable Gradle-facing API because consumers such as DDS
+     * need Minecraft version metadata before individual child projects
+     * apply the preprocessor plugin.
      */
-    fun getNodes(): List<Node> {
+    fun getNodes():
+            List<Node> {
         return nodes.toList()
     }
 
@@ -89,7 +80,7 @@ open class RootPreprocessExtension @Inject constructor(
     }
 
     /**
-     * Returns a configured node or fails with a useful configuration error.
+     * Returns a configured node or throws a useful configuration error.
      */
     fun requireNode(
         project: String,
@@ -98,14 +89,21 @@ open class RootPreprocessExtension @Inject constructor(
             findNode(project)
         ) {
             buildString {
-                append("Preprocess graph does not contain project `")
+                append(
+                    "Preprocess graph does not contain project `"
+                )
                 append(project)
                 append("`.")
 
                 if (nodes.isNotEmpty()) {
-                    append(" Configured projects: ")
                     append(
-                        nodes.joinToString(", ") {
+                        " Configured projects: "
+                    )
+
+                    append(
+                        nodes.joinToString(
+                            ", "
+                        ) {
                             it.project
                         }
                     )
@@ -115,7 +113,7 @@ open class RootPreprocessExtension @Inject constructor(
     }
 
     /**
-     * Returns whether a version node exists for [project].
+     * Returns whether [project] exists in the preprocess graph.
      */
     fun hasNode(
         project: String,
@@ -124,8 +122,7 @@ open class RootPreprocessExtension @Inject constructor(
     }
 
     /**
-     * Returns the configured Minecraft version for [project], or null when
-     * the project is not part of the preprocess graph.
+     * Returns the configured Minecraft version for [project].
      */
     fun getMcVersion(
         project: String,
@@ -135,22 +132,30 @@ open class RootPreprocessExtension @Inject constructor(
     }
 
     /**
-     * Creates and registers one version node.
+     * Creates and registers a version node.
      *
-     * Project names are unique identifiers in the Gradle multi-project build,
-     * therefore registering the same project twice is almost certainly a
-     * configuration error and is rejected immediately.
+     * mappings:
+     *
+     * non-null
+     *     Version uses a mapped/obfuscated namespace.
+     *
+     * null
+     *     Version is unobfuscated.
      */
     fun createNode(
         project: String,
         mcVersion: Int,
-        mappings: String,
+        mappings: String?,
     ): Node {
-        require(project.isNotBlank()) {
+        require(
+            project.isNotBlank()
+        ) {
             "Preprocess project name must not be blank."
         }
 
-        require(findNode(project) == null) {
+        require(
+            findNode(project) == null
+        ) {
             "Duplicate preprocess project node `$project`."
         }
 
@@ -164,12 +169,8 @@ open class RootPreprocessExtension @Inject constructor(
     }
 
     /**
-     * Converts the undirected version-node graph into the rooted graph used
-     * internally by preprocessing tasks.
-     *
-     * The selected main project must be explicitly present in the configured
-     * graph. Falling back silently to the first declared node can cause the
-     * raw source tree to be interpreted as the wrong Minecraft version.
+     * Converts the bidirectional declaration graph into the rooted graph
+     * consumed by preprocessing tasks.
      */
     private fun linkNodes(
         mainProject: String,
@@ -178,40 +179,47 @@ open class RootPreprocessExtension @Inject constructor(
             return null
         }
 
-        val first = requireNotNull(
-            findNode(mainProject)
-        ) {
-            buildString {
-                append("Configured main project `")
-                append(mainProject)
-                append("` is not present in the preprocess graph.")
-
-                if (nodes.isNotEmpty()) {
-                    append(" Configured projects: ")
+        val first =
+            requireNotNull(
+                findNode(mainProject)
+            ) {
+                buildString {
                     append(
-                        nodes.joinToString(", ") {
-                            it.project
-                        }
+                        "Configured main project `"
                     )
+                    append(mainProject)
+                    append(
+                        "` is not present in the preprocess graph."
+                    )
+
+                    if (nodes.isNotEmpty()) {
+                        append(
+                            " Configured projects: "
+                        )
+
+                        append(
+                            nodes.joinToString(
+                                ", "
+                            ) {
+                                it.project
+                            }
+                        )
+                    }
                 }
             }
-        }
 
         /*
-         * Do not change the traversal semantics here casually.
+         * Preserve the existing graph traversal semantics.
          *
-         * The graph is declared using bidirectional Node links while
-         * ProjectGraphNode is a rooted representation used by the existing
-         * source-inheritance and reverse-mapping logic.
-         *
-         * Compatibility with existing preprocessor projects therefore takes
-         * precedence over making this traversal look like a conventional tree
-         * conversion.
+         * Node links are bidirectional while ProjectGraphNode is the rooted
+         * representation used for inheritance and mapping direction.
          */
         val visited =
             mutableSetOf<Node>()
 
-        fun Node.breadthFirstSearch(): ProjectGraphNode {
+        fun Node.breadthFirstSearch():
+                ProjectGraphNode {
+
             val graphNode =
                 ProjectGraphNode(
                     project = project,
@@ -244,21 +252,27 @@ open class RootPreprocessExtension @Inject constructor(
             return graphNode
         }
 
-        return first.breadthFirstSearch()
+        return first
+            .breadthFirstSearch()
     }
 
     override fun addNode(
         project: String,
         mcVersion: Int,
-        mappings: String,
+        mappings: String?,
         extraMappings: File?,
         invertMappings: Boolean,
     ): ProjectGraphNode {
-        check(rootNode == null) {
+
+        check(
+            rootNode == null
+        ) {
             "Only one root node may be set."
         }
 
-        check(extraMappings == null) {
+        check(
+            extraMappings == null
+        ) {
             "Cannot add extra mappings to root node."
         }
 
@@ -272,17 +286,13 @@ open class RootPreprocessExtension @Inject constructor(
     }
 
     /**
-     * Optional absolute/root-project-relative location of mainProject.
-     *
-     * Retained for compatibility with the Fallen-Breath extension.
+     * Optional root-project-relative mainProject location.
      */
     val mainProjectFile =
         objects.property<String>()
 
     /**
-     * Optional child-project-relative location of mainProject.
-     *
-     * Retained for compatibility with the Fallen-Breath extension.
+     * Optional child-project-relative mainProject location.
      */
     val mainProjectFileRel =
         objects.property<String>()
@@ -294,16 +304,28 @@ open class RootPreprocessExtension @Inject constructor(
 class Node(
     val project: String,
     val mcVersion: Int,
-    val mappings: String,
+    val mappings: String?,
 ) {
+
+    /**
+     * Whether this Minecraft version requires named mappings.
+     *
+     * null mappings explicitly represent an unobfuscated version.
+     */
+    val isObfuscated:
+            Boolean
+        get() =
+            mappings != null
 
     /**
      * Adjacent version nodes.
      *
-     * Pair:
+     * Value:
      *
-     *     extra mapping file
-     *     mapping inversion flag
+     *     Pair(
+     *         extra mapping file,
+     *         mapping inversion flag
+     *     )
      */
     internal val links =
         linkedMapOf<
@@ -313,15 +335,14 @@ class Node(
 
     /**
      * Links two adjacent version nodes.
-     *
-     * Links are deliberately bidirectional because the selected main project
-     * may sit anywhere inside the supported Minecraft-version graph.
      */
     fun link(
         other: Node,
         extraMappings: File? = null,
     ) {
-        require(other !== this) {
+        require(
+            other !== this
+        ) {
             "A preprocess node cannot link to itself: `$project`."
         }
 
@@ -338,25 +359,28 @@ class Node(
             )
     }
 
-    override fun toString(): String {
+    override fun toString():
+            String {
         return "Node(" +
                 "project='$project', " +
                 "mcVersion=$mcVersion, " +
-                "mappings='$mappings'" +
+                "mappings=${mappings?.let { "'$it'" } ?: "null"}, " +
+                "isObfuscated=$isObfuscated" +
                 ")"
     }
 }
 
 /**
- * DSL shared by the root graph and recursively declared project graph nodes.
+ * DSL shared by root and recursively declared graph nodes.
  */
 interface ProjectGraphNodeDSL {
 
     operator fun String.invoke(
         mcVersion: Int,
-        mappings: String,
+        mappings: String?,
         extraMappings: File? = null,
-        configure: ProjectGraphNodeDSL.() -> Unit = {},
+        configure:
+        ProjectGraphNodeDSL.() -> Unit = {},
     ) {
         addNode(
             project = this,
@@ -369,22 +393,19 @@ interface ProjectGraphNodeDSL {
     fun addNode(
         project: String,
         mcVersion: Int,
-        mappings: String,
+        mappings: String?,
         extraMappings: File? = null,
         invertMappings: Boolean = false,
     ): ProjectGraphNodeDSL
 }
 
 /**
- * Rooted representation of the configured version graph.
- *
- * This is the representation consumed by PreprocessPlugin when determining
- * source inheritance and mapping direction.
+ * Rooted representation consumed by PreprocessPlugin.
  */
 open class ProjectGraphNode(
     val project: String,
     val mcVersion: Int,
-    val mappings: String,
+    val mappings: String?,
     val links:
     MutableList<
             Pair<
@@ -394,13 +415,22 @@ open class ProjectGraphNode(
             > = mutableListOf(),
 ) : ProjectGraphNodeDSL {
 
+    /**
+     * Whether this node uses mapped/obfuscated names.
+     */
+    val isObfuscated:
+            Boolean
+        get() =
+            mappings != null
+
     override fun addNode(
         project: String,
         mcVersion: Int,
-        mappings: String,
+        mappings: String?,
         extraMappings: File?,
         invertMappings: Boolean,
     ): ProjectGraphNodeDSL {
+
         return ProjectGraphNode(
             project = project,
             mcVersion = mcVersion,
@@ -419,12 +449,15 @@ open class ProjectGraphNode(
     }
 
     /**
-     * Finds a project node recursively from this rooted graph.
+     * Finds a project recursively from this rooted graph.
      */
     fun findNode(
         project: String,
     ): ProjectGraphNode? {
-        if (project == this.project) {
+
+        if (
+            project == this.project
+        ) {
             return this
         }
 
@@ -439,7 +472,9 @@ open class ProjectGraphNode(
                     project
                 )
 
-            if (result != null) {
+            if (
+                result != null
+            ) {
                 return result
             }
         }
@@ -456,7 +491,10 @@ open class ProjectGraphNode(
             ProjectGraphNode,
             Pair<File?, Boolean>,
             >? {
-        if (node == this) {
+
+        if (
+            node == this
+        ) {
             return null
         }
 
@@ -466,7 +504,9 @@ open class ProjectGraphNode(
             extraMappings,
         ) in links
         ) {
-            if (child == node) {
+            if (
+                child == node
+            ) {
                 return Pair(
                     this,
                     extraMappings,
@@ -478,7 +518,9 @@ open class ProjectGraphNode(
                     node
                 )
 
-            if (nested != null) {
+            if (
+                nested != null
+            ) {
                 return nested
             }
         }
@@ -486,11 +528,13 @@ open class ProjectGraphNode(
         return null
     }
 
-    override fun toString(): String {
+    override fun toString():
+            String {
         return "ProjectGraphNode(" +
                 "project='$project', " +
                 "mcVersion=$mcVersion, " +
-                "mappings='$mappings'" +
+                "mappings=${mappings?.let { "'$it'" } ?: "null"}, " +
+                "isObfuscated=$isObfuscated" +
                 ")"
     }
 }
